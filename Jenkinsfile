@@ -5,7 +5,8 @@ pipeline {
     environment {
         JAVA_HOME = 'C:\\Program Files\\Zulu\\zulu-17'
         MAVEN_HOME = 'C:\\Program Files\\Apachemaven-3.9.12'
-        PATH = 'C:\\Program Files\\Zulu\\zulu-17\\bin;C:\\Program Files\\Apachemaven-3.9.12\\bin;C:\\Windows\\System32;C:\\Windows'
+
+        PATH = "C:\\Program Files\\Zulu\\zulu-17\\bin;C:\\Program Files\\Apachemaven-3.9.12\\bin;C:\\Program Files\\Git\\cmd;${env.PATH}"
     }
 
     options {
@@ -13,23 +14,13 @@ pipeline {
         disableConcurrentBuilds()
     }
 
-    parameters {
-        booleanParam(
-            name: 'DEPLOY_TO_CLOUDHUB2',
-            defaultValue: false,
-            description: 'Set to true only when CloudHub 2.0 deployment is configured.'
-        )
-    }
-
     stages {
 
-        stage('Checkout') {
+        stage('Check Git') {
             steps {
-                checkout scm
-
                 bat '''
                     @echo off
-                    echo ===== GIT STATUS =====
+                    git --version
                     git status --short
                 '''
             }
@@ -43,75 +34,49 @@ pipeline {
                     java -version
 
                     echo ===== MAVEN VERSION =====
-                    mvn -version
+                    call mvn -version
                 '''
             }
         }
 
-        stage('Clean') {
+        stage('Maven Clean') {
             steps {
-                bat '''
-                    @echo off
-                    call mvn -B -ntp clean
-                    if errorlevel 1 exit /b %ERRORLEVEL%
-                '''
+                bat 'call mvn clean'
             }
         }
 
-        stage('Build, Test and Verify') {
+        stage('Maven Package') {
             steps {
-                bat '''
-                    @echo off
-                    call mvn -B -ntp verify
-                    if errorlevel 1 exit /b %ERRORLEVEL%
-                '''
+                bat 'call mvn package'
             }
         }
 
-        stage('Archive Mule Application') {
+        stage('Maven Verify') {
             steps {
-                archiveArtifacts(
-                    artifacts: 'target/*-mule-application.jar',
-                    fingerprint: true
-                )
+                bat 'call mvn verify'
             }
         }
 
-        stage('Deploy to CloudHub 2.0') {
-            when {
-                expression {
-                    return params.DEPLOY_TO_CLOUDHUB2
-                }
-            }
-
+        stage('Maven Test') {
             steps {
-                script {
-                    
-                    def anypointClientId = '377012aa9ddc4b6dafd9793b98ec51a7'
-                    def anypointClientSecret = 'beBac14E4172445C810D2600533442CF'
+                bat 'call mvn test'
+            }
+        }
 
-                    withEnv([
-                        "ANYPOINT_CLIENT_ID=${anypointClientId}",
-                        "ANYPOINT_CLIENT_SECRET=${anypointClientSecret}"
-                    ]) {
-                        bat '''
-                            @echo off
-                            call mvn -B -ntp mule:deploy -DconnectedAppClientId="%ANYPOINT_CLIENT_ID%" -DconnectedAppClientSecret="%ANYPOINT_CLIENT_SECRET%" -DconnectedAppGrantType=client_credentials
-                            if errorlevel 1 exit /b %ERRORLEVEL%
-                        '''
-                    }
-                }
+        stage('Maven Deploy') {
+            steps {
+                bat 'call mvn deploy -s "C:\\Users\\10361722\\.m2\\settings.xml"'
             }
         }
     }
 
     post {
         success {
-            echo 'Pipeline completed successfully.'
+            echo 'SUCCESS: All five Maven commands completed successfully.'
         }
 
         failure {
-            echo 'Pipeline failed. Review the Jenkins Console Output.'
+            echo 'FAILURE: Check Console Output for the failed stage.'
         }
 
         always {
