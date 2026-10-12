@@ -2,9 +2,10 @@
 pipeline {
     agent any
 
-    tools {
-        jdk 'jdk17'
-        maven 'maven'
+    environment {
+        JAVA_HOME = 'C:\\Program Files\\Zulu\\zulu-17'
+        MAVEN_HOME = 'C:\\Program Files\\Apachemaven-3.9.12'
+        PATH = 'C:\\Program Files\\Zulu\\zulu-17\\bin;C:\\Program Files\\Apachemaven-3.9.12\\bin;C:\\Windows\\System32;C:\\Windows'
     }
 
     options {
@@ -16,7 +17,7 @@ pipeline {
         booleanParam(
             name: 'DEPLOY_TO_CLOUDHUB2',
             defaultValue: false,
-            description: 'Enable when CloudHub 2.0 deployment is configured.'
+            description: 'Set to true only when CloudHub 2.0 deployment is configured.'
         )
     }
 
@@ -25,19 +26,45 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                sh 'git status --short'
+
+                bat '''
+                    @echo off
+                    echo ===== GIT STATUS =====
+                    git status --short
+                '''
+            }
+        }
+
+        stage('Check Java and Maven') {
+            steps {
+                bat '''
+                    @echo off
+                    echo ===== JAVA VERSION =====
+                    java -version
+
+                    echo ===== MAVEN VERSION =====
+                    mvn -version
+                '''
             }
         }
 
         stage('Clean') {
             steps {
-                sh 'mvn -B -ntp clean'
+                bat '''
+                    @echo off
+                    call mvn -B -ntp clean
+                    if errorlevel 1 exit /b %ERRORLEVEL%
+                '''
             }
         }
 
-        stage('Build, Test, Package and Verify') {
+        stage('Build, Test and Verify') {
             steps {
-                sh 'mvn -B -ntp verify'
+                bat '''
+                    @echo off
+                    call mvn -B -ntp verify
+                    if errorlevel 1 exit /b %ERRORLEVEL%
+                '''
             }
         }
 
@@ -53,14 +80,13 @@ pipeline {
         stage('Deploy to CloudHub 2.0') {
             when {
                 expression {
-                    params.DEPLOY_TO_CLOUDHUB2
+                    return params.DEPLOY_TO_CLOUDHUB2
                 }
             }
 
             steps {
                 script {
-                    // DEMO VALUES ONLY
-                    // Replace locally for demonstration.
+                    
                     def anypointClientId = '377012aa9ddc4b6dafd9793b98ec51a7'
                     def anypointClientSecret = 'beBac14E4172445C810D2600533442CF'
 
@@ -68,13 +94,10 @@ pipeline {
                         "ANYPOINT_CLIENT_ID=${anypointClientId}",
                         "ANYPOINT_CLIENT_SECRET=${anypointClientSecret}"
                     ]) {
-                        sh '''
-                            set +x
-
-                            mvn -B -ntp mule:deploy \
-                              -DconnectedAppClientId="$ANYPOINT_CLIENT_ID" \
-                              -DconnectedAppClientSecret="$ANYPOINT_CLIENT_SECRET" \
-                              -DconnectedAppGrantType=client_credentials
+                        bat '''
+                            @echo off
+                            call mvn -B -ntp mule:deploy -DconnectedAppClientId="%ANYPOINT_CLIENT_ID%" -DconnectedAppClientSecret="%ANYPOINT_CLIENT_SECRET%" -DconnectedAppGrantType=client_credentials
+                            if errorlevel 1 exit /b %ERRORLEVEL%
                         '''
                     }
                 }
@@ -84,11 +107,11 @@ pipeline {
 
     post {
         success {
-            echo 'CI pipeline completed successfully.'
+            echo 'Pipeline completed successfully.'
         }
 
         failure {
-            echo 'Pipeline failed. Check the Jenkins console output.'
+            echo 'Pipeline failed. Review the Jenkins Console Output.'
         }
 
         always {
