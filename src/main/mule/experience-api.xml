@@ -1,0 +1,479 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway"
+      xmlns:xml-module="http://www.mulesoft.org/schema/mule/xml-module"
+      xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+      xmlns:http="http://www.mulesoft.org/schema/mule/http"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+        http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+        http://www.mulesoft.org/schema/mule/xml-module http://www.mulesoft.org/schema/mule/xml-module/current/mule-xml-module.xsd
+http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd">
+
+    <!-- GLOBAL CONFIGURATIONS -->
+
+    <configuration-properties
+        file="config-dev.properties"
+        doc:name="Development Properties"/>
+
+    <http:listener-config
+        name="HTTP_Listener_config"
+        doc:name="Experience API Listener">
+        <http:listener-connection
+            host="0.0.0.0"
+            port="${http.port}"/>
+    </http:listener-config>
+
+    <http:request-config
+        name="Process_API_Request_Config"
+        doc:name="Process API Request Configuration">
+        <http:request-connection
+            host="${process.api.host}"
+            port="${process.api.port}"/>
+    </http:request-config>
+
+    <xml-module:config
+        name="XML_Config"
+        doc:name="XML Schema Validation Config"/>
+
+    <!-- POST /contacts -->
+
+    <api-gateway:autodiscovery apiId="21230076" ignoreBasePath="true" doc:name="API Autodiscovery" doc:id="3c68d5fe-2df7-4de6-adaf-7f34a09ec67b" flowRef="get-contact-experience-flow" />
+	<flow name="create-contact-experience-flow"
+          doc:name="Create Contact">
+
+        <http:listener
+            config-ref="HTTP_Listener_config"
+            path="/contacts"
+            allowedMethods="POST"
+            doc:name="Create Contact Listener">
+
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers><![CDATA[
+                    #[{'Content-Type': 'application/json'}]
+                ]]></http:headers>
+            </http:response>
+
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body><![CDATA[#[payload]]]></http:body>
+                <http:headers><![CDATA[
+                    #[{'Content-Type': 'application/json'}]
+                ]]></http:headers>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+            variableName="originalRequest"
+            value="#[payload]"
+            doc:name="Store Original JSON Request"/>
+
+        <choice doc:name="Validate Required Contact Fields">
+            <when expression="#[
+                (vars.originalRequest is Object)
+                and !isEmpty(vars.originalRequest.externalId default '')
+                and !isEmpty(vars.originalRequest.firstName default '')
+                and !isEmpty(vars.originalRequest.lastName default '')
+                and !isEmpty(vars.originalRequest.email default '')
+                and !isEmpty(vars.originalRequest.phone default '')
+                and matches(
+                    (vars.originalRequest.addressId default '') as String,
+                    /^[1-9][0-9]*$/
+                )
+            ]">
+
+                <ee:transform doc:name="Convert Contact JSON to XML">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/xml
+---
+{
+    contactRequest: {
+        externalId: vars.originalRequest.externalId as String,
+        firstName: vars.originalRequest.firstName as String,
+        lastName: vars.originalRequest.lastName as String,
+        email: vars.originalRequest.email as String,
+        phone: vars.originalRequest.phone as String,
+        addressId: vars.originalRequest.addressId as Number
+    }
+}
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+
+                <xml-module:validate-schema
+                    config-ref="XML_Config"
+                    schemas="contact-request-schema.xsd"
+                    doc:name="Validate Contact Request XSD"/>
+
+                <ee:transform doc:name="Restore Original JSON Request">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+vars.originalRequest
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+
+                <http:request
+                    method="POST"
+                    config-ref="Process_API_Request_Config"
+                    path="/contacts"
+                    doc:name="Send Contact to Process API">
+                    <http:headers><![CDATA[
+#[{
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+}]
+                    ]]></http:headers>
+                    <http:response-validator>
+                        <http:success-status-code-validator values="200..499"/>
+                    </http:response-validator>
+                </http:request>
+
+                <set-variable
+                    variableName="processResponse"
+                    value="#[payload]"
+                    doc:name="Store Process API Response"/>
+
+                <set-variable
+                    variableName="processResponseStatus"
+                    value="#[attributes.statusCode default 200]"
+                    doc:name="Store Process API HTTP Status"/>
+
+                <set-variable
+                    variableName="downstreamErrorCode"
+                    value="#[
+                        if (vars.processResponse is Object)
+                            (vars.processResponse.code default '')
+                        else if (vars.processResponse is String)
+                            ((read(vars.processResponse, 'application/json')).code default '')
+                        else if (vars.processResponse is Binary)
+                            ((read(vars.processResponse, 'application/json')).code default '')
+                        else
+                            ''
+                    ]"
+                    doc:name="Extract Process Error Code"/>
+
+                <choice doc:name="Normalize Process API Status">
+                    <when expression="#[vars.downstreamErrorCode == 'ADDRESS_NOT_FOUND']">
+                        <set-variable
+                            variableName="httpStatus"
+                            value="#[404]"
+                            doc:name="Set Address Not Found Status"/>
+                    </when>
+
+                    <when expression="#[
+                        vars.downstreamErrorCode == 'INVALID_ADDRESS_ID'
+                        or vars.downstreamErrorCode == 'VALIDATION_ERROR'
+                    ]">
+                        <set-variable
+                            variableName="httpStatus"
+                            value="#[400]"
+                            doc:name="Set Validation Error Status"/>
+                    </when>
+
+                    <otherwise>
+                        <set-variable
+                            variableName="httpStatus"
+                            value="#[vars.processResponseStatus]"
+                            doc:name="Preserve Process API Status"/>
+                    </otherwise>
+                </choice>
+
+            </when>
+
+            <otherwise>
+                <set-variable
+                    variableName="httpStatus"
+                    value="#[400]"
+                    doc:name="Set Validation Status"/>
+
+                <ee:transform doc:name="Invalid Contact Request Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    success: false,
+    code: "VALIDATION_ERROR",
+    message: "Required fields: externalId, firstName, lastName, email, phone, and a positive integer addressId",
+    correlationId: correlationId
+}
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </otherwise>
+        </choice>
+
+        <error-handler ref="globalError_Handler"/>
+    </flow>
+
+    <!-- GET /contacts/{contactId} -->
+
+    <flow name="get-contact-experience-flow"
+          doc:name="Get Contact">
+
+        <http:listener
+            config-ref="HTTP_Listener_config"
+            path="/contacts/{contactId}"
+            allowedMethods="GET"
+            doc:name="Get Contact Listener">
+
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers><![CDATA[
+                    #[{'Content-Type': 'application/json'}]
+                ]]></http:headers>
+            </http:response>
+
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body><![CDATA[#[payload]]]></http:body>
+                <http:headers><![CDATA[
+                    #[{'Content-Type': 'application/json'}]
+                ]]></http:headers>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+            variableName="contactId"
+            value="#[attributes.uriParams.contactId as String]"
+            doc:name="Capture Salesforce Contact ID"/>
+
+        <http:request
+            method="GET"
+            config-ref="Process_API_Request_Config"
+            path="/contacts/{contactId}"
+            doc:name="Get Contact from Process API">
+
+            <http:headers><![CDATA[
+                #[{'Accept': 'application/json'}]
+            ]]></http:headers>
+
+            <http:uri-params><![CDATA[
+                #[{contactId: vars.contactId}]
+            ]]></http:uri-params>
+
+            <http:response-validator>
+                <http:success-status-code-validator values="200..499"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+            variableName="httpStatus"
+            value="#[attributes.statusCode default 200]"
+            doc:name="Capture Process API Status"/>
+
+        <error-handler ref="globalError_Handler"/>
+    </flow>
+
+    <!-- PUT /contacts/{contactId} -->
+
+    <flow name="update-contact-experience-flow"
+          doc:name="Update Contact">
+
+        <http:listener
+            config-ref="HTTP_Listener_config"
+            path="/contacts/{contactId}"
+            allowedMethods="PUT"
+            doc:name="Update Contact Listener">
+
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers><![CDATA[
+                    #[{'Content-Type': 'application/json'}]
+                ]]></http:headers>
+            </http:response>
+
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body><![CDATA[#[payload]]]></http:body>
+                <http:headers><![CDATA[
+                    #[{'Content-Type': 'application/json'}]
+                ]]></http:headers>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+            variableName="contactId"
+            value="#[attributes.uriParams.contactId as String]"
+            doc:name="Capture Salesforce Contact ID"/>
+
+        <set-variable
+            variableName="requestBody"
+            value="#[payload]"
+            doc:name="Store Update Request"/>
+
+        <choice doc:name="Validate Update Request">
+            <when expression="#[
+                (vars.requestBody is Object)
+                and !isEmpty(
+                    vars.requestBody.lastName
+                    default vars.requestBody.LastName
+                    default ''
+                )
+            ]">
+
+                <ee:transform doc:name="Restore Update JSON Payload">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+vars.requestBody
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+
+                <http:request
+                    method="PUT"
+                    config-ref="Process_API_Request_Config"
+                    path="/contacts/{contactId}"
+                    doc:name="Update Contact through Process API">
+
+                    <http:headers><![CDATA[
+#[{
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+}]
+                    ]]></http:headers>
+
+                    <http:uri-params><![CDATA[
+#[{contactId: vars.contactId}]
+                    ]]></http:uri-params>
+
+                    <http:response-validator>
+                        <http:success-status-code-validator values="200..499"/>
+                    </http:response-validator>
+                </http:request>
+
+                <set-variable
+                    variableName="httpStatus"
+                    value="#[attributes.statusCode default 200]"
+                    doc:name="Capture Process API Status"/>
+            </when>
+
+            <otherwise>
+                <set-variable
+                    variableName="httpStatus"
+                    value="#[400]"
+                    doc:name="Set Validation Status"/>
+
+                <ee:transform doc:name="Invalid Update Response">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    success: false,
+    code: "VALIDATION_ERROR",
+    message: "lastName is required for Contact update",
+    correlationId: correlationId
+}
+                        ]]></ee:set-payload>
+                    </ee:message>
+                </ee:transform>
+            </otherwise>
+        </choice>
+
+        <error-handler ref="globalError_Handler"/>
+    </flow>
+
+    <!-- DELETE /contacts/{contactId} -->
+
+    <flow name="delete-contact-experience-flow"
+          doc:name="Delete Contact">
+
+        <http:listener
+            config-ref="HTTP_Listener_config"
+            path="/contacts/{contactId}"
+            allowedMethods="DELETE"
+            doc:name="Delete Contact Listener">
+
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers><![CDATA[
+                    #[{'Content-Type': 'application/json'}]
+                ]]></http:headers>
+            </http:response>
+
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body><![CDATA[#[payload]]]></http:body>
+                <http:headers><![CDATA[
+                    #[{'Content-Type': 'application/json'}]
+                ]]></http:headers>
+            </http:error-response>
+        </http:listener>
+
+        <set-variable
+            variableName="contactId"
+            value="#[attributes.uriParams.contactId as String]"
+            doc:name="Capture Salesforce Contact ID"/>
+
+        <http:request
+            method="DELETE"
+            config-ref="Process_API_Request_Config"
+            path="/contacts/{contactId}"
+            doc:name="Delete Contact through Process API">
+
+            <http:headers><![CDATA[
+                #[{'Accept': 'application/json'}]
+            ]]></http:headers>
+
+            <http:uri-params><![CDATA[
+                #[{contactId: vars.contactId}]
+            ]]></http:uri-params>
+
+            <http:response-validator>
+                <http:success-status-code-validator values="200..499"/>
+            </http:response-validator>
+        </http:request>
+
+        <set-variable
+            variableName="httpStatus"
+            value="#[attributes.statusCode default 200]"
+            doc:name="Capture Process API Status"/>
+
+        <error-handler ref="globalError_Handler"/>
+    </flow>
+
+    <!-- GLOBAL ERROR HANDLER -->
+	<error-handler
+        name="globalError_Handler"
+        doc:name="Experience API Global Error Handler">
+
+        <on-error-continue
+            type="ANY"
+            logException="true"
+            enableNotifications="true">
+
+            <set-variable
+                variableName="httpStatus"
+                value="#[502]"
+                doc:name="Set Bad Gateway Status"/>
+
+            <logger
+                level="ERROR"
+                doc:name="Log Experience API Error"
+                message="#['Experience API request failed. correlationId='&#10;                    ++ correlationId&#10;                    ++ '; errorType='&#10;                    ++ (error.errorType.identifier default 'UNKNOWN')]"/>
+
+            <ee:transform doc:name="Standard Error Response">
+                <ee:message>
+                    <ee:set-payload><![CDATA[
+%dw 2.0
+output application/json
+---
+{
+    success: false,
+    code: "DOWNSTREAM_SERVICE_ERROR",
+    message: "The request could not be completed by a downstream service",
+    correlationId: correlationId
+}
+                    ]]></ee:set-payload>
+                </ee:message>
+            </ee:transform>
+        </on-error-continue>
+    </error-handler>
+</mule>

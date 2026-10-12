@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xmlns:munit="http://www.mulesoft.org/schema/mule/munit"
+      xmlns:munit-tools="http://www.mulesoft.org/schema/mule/munit-tools"
+      xmlns="http://www.mulesoft.org/schema/mule/core"
+      xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+      xsi:schemaLocation="
+        http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+        http://www.mulesoft.org/schema/mule/munit http://www.mulesoft.org/schema/mule/munit/current/mule-munit.xsd
+        http://www.mulesoft.org/schema/mule/munit-tools http://www.mulesoft.org/schema/mule/munit-tools/current/mule-munit-tools.xsd">
+
+    <munit:config name="experience-api-test-suite.xml"/>
+
+    <!-- 1. CREATE CONTACT -->
+
+    <munit:test
+        name="experience-api-test-suite-create-contact-experience-flowTest"
+        doc:id="b05af565-b36c-42eb-9fb1-4fd9afce842e"
+        description="Test create contact experience flow">
+
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute
+                        attributeName="method"
+                        whereValue="#['POST']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[{contactId: 'CT-1001', externalId: 'EXT-1001', firstName: 'John', lastName: 'Doe', email: 'john.doe@example.com', phone: '9876543210', addressId: 1}]"
+                        mediaType="application/java"/>
+                    <munit-tools:attributes
+                        value="#[{statusCode: 201, reasonPhrase: 'Created', headers: {}}]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload
+                    value="#[{externalId: 'EXT-1001', firstName: 'John', lastName: 'Doe', email: 'john.doe@example.com', phone: '9876543210', addressId: '1'}]"
+                    mediaType="application/java"/>
+            </munit:set-event>
+
+            <flow-ref
+                doc:name="Flow-ref to create-contact-experience-flow"
+                doc:id="c9d47a65-5bdc-4699-b626-ba3e62e0d743"
+                name="create-contact-experience-flow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that
+                expression="#[payload.contactId]"
+                is="#[MunitTools::equalTo('CT-1001')]"
+                message="Create should return the created contact"/>
+            <munit-tools:assert-that
+                expression="#[vars.httpStatus]"
+                is="#[MunitTools::equalTo(201)]"
+                message="Create should return HTTP 201"/>
+        </munit:validation>
+
+    </munit:test>
+
+
+    <!-- 2. GET CONTACT -->
+
+    <munit:test
+        name="experience-api-test-suite-get-contact-experience-flowTest"
+        doc:id="eb9a6fc4-02f6-469c-96e3-bf47b5fca2e8"
+        description="Test get contact experience flow">
+
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute
+                        attributeName="method"
+                        whereValue="#['GET']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[{contactId: 'CT-1001', externalId: 'EXT-1001', firstName: 'John', lastName: 'Doe', email: 'john.doe@example.com', phone: '9876543210', addressId: 1}]"
+                        mediaType="application/java"/>
+                    <munit-tools:attributes
+                        value="#[{statusCode: 200, reasonPhrase: 'OK', headers: {}}]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload
+                    value="#[{}]"
+                    mediaType="application/java"/>
+                <munit:attributes
+                    value="#[{uriParams: {contactId: 'CT-1001'}}]"/>
+            </munit:set-event>
+
+            <flow-ref
+                doc:name="Flow-ref to get-contact-experience-flow"
+                doc:id="949c8fde-83a9-4097-8100-5bde16326149"
+                name="get-contact-experience-flow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that
+                expression="#[payload.contactId]"
+                is="#[MunitTools::equalTo('CT-1001')]"
+                message="Get should return the requested contact"/>
+            <munit-tools:assert-that
+                expression="#[vars.httpStatus]"
+                is="#[MunitTools::equalTo(200)]"
+                message="Get should return HTTP 200"/>
+        </munit:validation>
+
+    </munit:test>
+
+
+    <!-- 3. UPDATE CONTACT -->
+
+    <munit:test
+        name="experience-api-test-suite-update-contact-experience-flowTest"
+        doc:id="b1e1c8a1-1bea-4d37-b786-292db1f9c1d4"
+        description="Test update contact experience flow">
+
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute
+                        attributeName="method"
+                        whereValue="#['PUT']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[{contactId: 'CT-1001', externalId: 'EXT-1001', firstName: 'John', lastName: 'Smith', email: 'john.doe@example.com', phone: '9876543210', addressId: 1}]"
+                        mediaType="application/java"/>
+                    <munit-tools:attributes
+                        value="#[{statusCode: 200, reasonPhrase: 'OK', headers: {}}]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload
+                    value="#[{externalId: 'EXT-1001', firstName: 'John', lastName: 'Smith', email: 'john.doe@example.com', phone: '9876543210', addressId: '1'}]"
+                    mediaType="application/java"/>
+                <munit:attributes
+                    value="#[{uriParams: {contactId: 'CT-1001'}}]"/>
+            </munit:set-event>
+
+            <flow-ref
+                doc:name="Flow-ref to update-contact-experience-flow"
+                doc:id="f373c50d-aade-4e06-a2af-092376caf349"
+                name="update-contact-experience-flow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that
+                expression="#[payload.lastName]"
+                is="#[MunitTools::equalTo('Smith')]"
+                message="Update should return the updated contact"/>
+            <munit-tools:assert-that
+                expression="#[vars.httpStatus]"
+                is="#[MunitTools::equalTo(200)]"
+                message="Update should return HTTP 200"/>
+        </munit:validation>
+
+    </munit:test>
+
+
+    <!-- 4. DELETE CONTACT -->
+
+    <munit:test
+        name="experience-api-test-suite-delete-contact-experience-flowTest"
+        doc:id="b6e24689-b825-46ba-b322-88b60aa89547"
+        description="Test delete contact experience flow">
+
+        <munit:behavior>
+            <munit-tools:mock-when processor="http:request">
+                <munit-tools:with-attributes>
+                    <munit-tools:with-attribute
+                        attributeName="method"
+                        whereValue="#['DELETE']"/>
+                </munit-tools:with-attributes>
+                <munit-tools:then-return>
+                    <munit-tools:payload
+                        value="#[{success: true, contactId: 'CT-1001'}]"
+                        mediaType="application/java"/>
+                    <munit-tools:attributes
+                        value="#[{statusCode: 200, reasonPhrase: 'OK', headers: {}}]"/>
+                </munit-tools:then-return>
+            </munit-tools:mock-when>
+        </munit:behavior>
+
+        <munit:execution>
+            <munit:set-event>
+                <munit:payload
+                    value="#[{}]"
+                    mediaType="application/java"/>
+                <munit:attributes
+                    value="#[{uriParams: {contactId: 'CT-1001'}}]"/>
+            </munit:set-event>
+
+            <flow-ref
+                doc:name="Flow-ref to delete-contact-experience-flow"
+                doc:id="76cbe3ba-a825-4f63-98c9-0466c4cc890d"
+                name="delete-contact-experience-flow"/>
+        </munit:execution>
+
+        <munit:validation>
+            <munit-tools:assert-that
+                expression="#[payload.success]"
+                is="#[MunitTools::equalTo(true)]"
+                message="Delete should return a successful response"/>
+        </munit:validation>
+
+    </munit:test>
+
+</mule>
