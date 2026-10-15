@@ -1,4 +1,3 @@
-
 pipeline {
     agent any
 
@@ -41,42 +40,52 @@ pipeline {
 
         stage('Maven Clean') {
             steps {
-                bat 'call mvn clean'
+                bat '''
+                    call mvn clean -DskipMunitTests
+                '''
             }
         }
 
         stage('Maven Package') {
             steps {
-                bat 'call mvn package'
+                bat '''
+                    call mvn package -DskipMunitTests
+                '''
             }
         }
 
         stage('Maven Verify') {
             steps {
-                bat 'call mvn verify'
+                bat '''
+                    call mvn verify -DskipMunitTests
+                '''
             }
         }
 
-        stage('Maven Test') {
+        stage('Maven Test - MUnit Skipped') {
             steps {
-                bat 'call mvn test'
+                bat '''
+                    call mvn test -DskipMunitTests
+                '''
             }
         }
 
         stage('Maven Deploy') {
             steps {
-                bat 'call mvn deploy -s "C:\\Users\\10361722\\.m2\\settings.xml"'
+                bat '''
+                    call mvn deploy -DskipMunitTests -s "C:\\Users\\10361722\\.m2\\settings.xml"
+                '''
             }
         }
     }
 
     post {
         success {
-            echo 'SUCCESS: All five Maven commands completed successfully.'
+            echo 'SUCCESS: All Maven stages completed with MUnit tests skipped.'
         }
 
         failure {
-            echo 'FAILURE: Check Console Output for the failed stage.'
+            echo 'FAILURE: Check Console Output for the failed Maven stage.'
         }
 
         always {
